@@ -1,0 +1,385 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ==================== AUTH ====================
+
+model User {
+  id            String    @id @default(cuid())
+  name          String?
+  email         String    @unique
+  emailVerified DateTime?
+  image         String?
+  password      String?
+  role          UserRole  @default(STUDENT)
+  grade         String?   // e.g. "SMP", "SMA", "Mahasiswa", "Guru"
+  school        String?
+  bio           String?
+  streak        Int       @default(0)
+  totalXP       Int       @default(0)
+  level         Int       @default(1)
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  accounts      Account[]
+  sessions      Session[]
+  documents     Document[]
+  quizAttempts  QuizAttempt[]
+  flashcardSets FlashcardSet[]
+  chats         Chat[]
+  progress      Progress[]
+  leaderboard   Leaderboard?
+  notifications Notification[]
+
+  @@map("users")
+}
+
+enum UserRole {
+  STUDENT
+  TEACHER
+  ADMIN
+}
+
+model Account {
+  id                String  @id @default(cuid())
+  userId            String
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String? @db.Text
+  access_token      String? @db.Text
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String? @db.Text
+  session_state     String?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+  @@map("accounts")
+}
+
+model Session {
+  id           String   @id @default(cuid())
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("sessions")
+}
+
+model VerificationToken {
+  identifier String
+  token      String   @unique
+  expires    DateTime
+
+  @@unique([identifier, token])
+  @@map("verification_tokens")
+}
+
+// ==================== DOCUMENTS & MATERIALS ====================
+
+model Document {
+  id          String       @id @default(cuid())
+  userId      String
+  title       String
+  description String?
+  fileUrl     String?
+  fileType    DocumentType
+  subject     String?
+  grade       String?
+  tags        String[]
+  content     String?      @db.Text // extracted text content
+  summary     String?      @db.Text // AI-generated summary
+  isPublic    Boolean      @default(false)
+  viewCount   Int          @default(0)
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+
+  user         User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  quizzes      Quiz[]
+  flashcardSet FlashcardSet?
+  progress     Progress[]
+
+  @@map("documents")
+}
+
+enum DocumentType {
+  PDF
+  DOCX
+  PPTX
+  TXT
+  IMAGE
+  YOUTUBE
+}
+
+// ==================== QUIZ ====================
+
+model Quiz {
+  id          String   @id @default(cuid())
+  documentId  String?
+  creatorId   String?
+  title       String
+  description String?
+  subject     String?
+  grade       String?
+  timeLimit   Int?     // in minutes
+  passingScore Int     @default(70)
+  isPublic    Boolean  @default(false)
+  tags        String[]
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  document   Document?     @relation(fields: [documentId], references: [id])
+  questions  Question[]
+  attempts   QuizAttempt[]
+
+  @@map("quizzes")
+}
+
+model Question {
+  id            String       @id @default(cuid())
+  quizId        String
+  type          QuestionType
+  text          String       @db.Text
+  options       Json?        // Array of { id, text, isCorrect }
+  correctAnswer String?
+  explanation   String?      @db.Text
+  points        Int          @default(10)
+  order         Int          @default(0)
+  createdAt     DateTime     @default(now())
+
+  quiz    Quiz     @relation(fields: [quizId], references: [id], onDelete: Cascade)
+  answers Answer[]
+
+  @@map("questions")
+}
+
+enum QuestionType {
+  MULTIPLE_CHOICE
+  TRUE_FALSE
+  SHORT_ANSWER
+}
+
+model QuizAttempt {
+  id          String    @id @default(cuid())
+  userId      String
+  quizId      String
+  mode        QuizMode  @default(PRACTICE)
+  score       Int       @default(0)
+  totalPoints Int       @default(0)
+  timeTaken   Int?      // in seconds
+  completed   Boolean   @default(false)
+  startedAt   DateTime  @default(now())
+  completedAt DateTime?
+
+  user    User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  answers Answer[]
+
+  @@map("quiz_attempts")
+}
+
+enum QuizMode {
+  PRACTICE
+  EXAM
+}
+
+model Answer {
+  id          String   @id @default(cuid())
+  attemptId   String
+  questionId  String
+  answer      String?
+  isCorrect   Boolean  @default(false)
+  pointsEarned Int     @default(0)
+  createdAt   DateTime @default(now())
+
+  attempt  QuizAttempt @relation(fields: [attemptId], references: [id], onDelete: Cascade)
+  question Question    @relation(fields: [questionId], references: [id], onDelete: Cascade)
+
+  @@map("answers")
+}
+
+// ==================== FLASHCARDS ====================
+
+model FlashcardSet {
+  id          String     @id @default(cuid())
+  userId      String
+  documentId  String?    @unique
+  title       String
+  description String?
+  subject     String?
+  grade       String?
+  isPublic    Boolean    @default(false)
+  tags        String[]
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
+
+  user      User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  document  Document?  @relation(fields: [documentId], references: [id])
+  cards     Flashcard[]
+
+  @@map("flashcard_sets")
+}
+
+model Flashcard {
+  id           String   @id @default(cuid())
+  setId        String
+  front        String   @db.Text
+  back         String   @db.Text
+  hint         String?
+  isBookmarked Boolean  @default(false)
+  difficulty   Int      @default(0) // 0-5, for spaced repetition
+  nextReview   DateTime?
+  reviewCount  Int      @default(0)
+  order        Int      @default(0)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  set FlashcardSet @relation(fields: [setId], references: [id], onDelete: Cascade)
+
+  @@map("flashcards")
+}
+
+// ==================== CHAT / AI TUTOR ====================
+
+model Chat {
+  id        String   @id @default(cuid())
+  userId    String
+  title     String   @default("New Chat")
+  subject   String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user     User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  messages Message[]
+
+  @@map("chats")
+}
+
+model Message {
+  id         String      @id @default(cuid())
+  chatId     String
+  role       MessageRole
+  content    String      @db.Text
+  attachments Json?      // Array of { name, url, type }
+  tokens     Int?
+  createdAt  DateTime    @default(now())
+
+  chat Chat @relation(fields: [chatId], references: [id], onDelete: Cascade)
+
+  @@map("messages")
+}
+
+enum MessageRole {
+  USER
+  ASSISTANT
+  SYSTEM
+}
+
+// ==================== PROGRESS ====================
+
+model Progress {
+  id          String   @id @default(cuid())
+  userId      String
+  documentId  String?
+  subject     String?
+  type        ProgressType
+  value       Float    // percentage or score
+  metadata    Json?
+  createdAt   DateTime @default(now())
+
+  user     User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  document Document? @relation(fields: [documentId], references: [id])
+
+  @@map("progress")
+}
+
+enum ProgressType {
+  QUIZ_SCORE
+  FLASHCARD_REVIEW
+  DOCUMENT_READ
+  AI_TUTOR_SESSION
+  STREAK_DAY
+}
+
+// ==================== LEADERBOARD ====================
+
+model Leaderboard {
+  id       String @id @default(cuid())
+  userId   String @unique
+  xp       Int    @default(0)
+  rank     Int?
+  streak   Int    @default(0)
+  quizzes  Int    @default(0)
+  accuracy Float  @default(0)
+  month    String // e.g. "2024-01"
+  week     String // e.g. "2024-W01"
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("leaderboard")
+}
+
+// ==================== NOTIFICATIONS ====================
+
+model Notification {
+  id        String           @id @default(cuid())
+  userId    String
+  type      NotificationType
+  title     String
+  message   String
+  isRead    Boolean          @default(false)
+  link      String?
+  createdAt DateTime         @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("notifications")
+}
+
+enum NotificationType {
+  QUIZ_RESULT
+  STREAK_REMINDER
+  NEW_MATERIAL
+  ACHIEVEMENT
+  SYSTEM
+}
+
+// ==================== BANK SOAL ====================
+
+model BankQuestion {
+  id          String       @id @default(cuid())
+  creatorId   String?
+  type        QuestionType
+  text        String       @db.Text
+  options     Json?
+  answer      String
+  explanation String?      @db.Text
+  subject     String
+  grade       String
+  difficulty  Difficulty   @default(MEDIUM)
+  tags        String[]
+  isVerified  Boolean      @default(false)
+  usageCount  Int          @default(0)
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+
+  @@map("bank_questions")
+}
+
+enum Difficulty {
+  EASY
+  MEDIUM
+  HARD
+}
