@@ -185,6 +185,8 @@ model QuizAttempt {
   completedAt DateTime?
 
   user    User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  quiz Quiz @relation(fields: [quizId], references: [id], onDelete: Cascade)
   answers Answer[]
 
   @@map("quiz_attempts")
